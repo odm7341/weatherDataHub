@@ -107,7 +107,7 @@ def recvLoop():
         payload.append(struct.unpack("<f", buffer[4:9])[
             0])  # get both floats out
         # print details about the received packet
-        logger.info("GOT INSIDE T:%f  H:%f" % (payload[0], payload[1]))
+        logger.info("OUTSIDE T:%f  H:%f" % (payload[0], payload[1]))
         # Write to global variables
         temp_o = toF(payload[0])
         hum_o = payload[1]
