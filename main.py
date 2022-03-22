@@ -4,9 +4,10 @@ import time
 import RPi.GPIO as GPIO
 from RPLCD.gpio import CharLCD
 
-#from threading import Lock
-#lock = Lock()
-
+import logging
+logging.basicConfig(filename='../weath.log', filemode='w', format='%(levelname)s - %(asctime)s %(message)s')
+logger=logging.getLogger()
+logger.setLevel(logging.DEBUG) 
 
 # for NRF
 import struct
@@ -44,28 +45,16 @@ def getInfo():
             err_cnt = 0
             temp_c = result.temperature
             hum = result.humidity
-            print("\nT:%f  H:%f" % (temp_c, hum))
+            #print("\nT:%f  H:%f" % (temp_c, hum))
+            logger.info("GOT INSIDE T:%f  H:%f" % (temp_c, hum))
             temp_i = toF(temp_c)
             hum_i = hum
             break
         else:
             err_cnt += 1
             result = instance.read()
-            print("E%d" % result.error_code, end="")
-
-
-def showInfo(temp_i, hum_i, temp_o, hum_o):
-
-    lcd.clear()
-    lcd.cursor_pos = (0, 0)
-    lcd.write_string("INSIDE Temp: " + str(round(temp_i, 1)) + chr(223) + "F")
-    lcd.cursor_pos = (1, 0)
-    lcd.write_string("Humidity: " + str(hum_i) + "%")
-    lcd.cursor_pos = (2, 0)
-    lcd.write_string("OUTSIDE Temp: " + str(round(temp_o, 1)) + chr(223) + "F")
-    lcd.cursor_pos = (3, 0)
-    lcd.write_string("Humidity: " + str(hum_o) + "%")
-    return
+            #print("E%d" % result.error_code, end="")
+            logger.error("DHT: %d" % result.error_code)
 
 
 def updateDisplay():
@@ -88,22 +77,20 @@ def wait():
     updateDisplay()
     # wait 5 seconds
     start_timer = time.monotonic()
-    print('wait...')
+    #print('wait...')
     while not time.monotonic() - start_timer < 5: # when we have not waited 5 seconds
         pass
     # call this func again
     wait()
 
 
-def NrfInterrupt(thing):
+def NrfInterrupt(pin):
     '''This is called when we get an interrupt from the NRF module'''
-    print(thing)
-    print("IRQ pin went active LOW.")
     tx_ds, tx_df, rx_dr = radio.whatHappened()  # update IRQ status flags
-    if rx_dr:   # this should be the only thin that happens
+    if rx_dr:   # this should be the only thing that happens
         recvLoop()
     else:
-        print(f"\ttx_ds: {tx_ds}, tx_df: {tx_df}, rx_dr: {rx_dr}")
+        logger.error("Not rx IRQ; tx_ds: {tx_ds}, tx_df: {tx_df}, rx_dr: {rx_dr}")
 
 
 def recvLoop():
@@ -120,13 +107,7 @@ def recvLoop():
         payload.append(struct.unpack("<f", buffer[4:9])[
             0])  # get both floats out
         # print details about the received packet
-        print(
-            "Received {} bytes on pipe {}: {}".format(
-                radio.payloadSize,
-                pipe_number,
-                payload
-            )
-        )
+        logger.info("GOT INSIDE T:%f  H:%f" % (payload[0], payload[1]))
         # Write to global variables
         temp_o = toF(payload[0])
         hum_o = payload[1]
