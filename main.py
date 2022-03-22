@@ -1,12 +1,19 @@
+import dht11
+from os import wait3
 import time
 import RPi.GPIO as GPIO
 from RPLCD.gpio import CharLCD
+
+#from threading import Lock
+#lock = Lock()
+
+
 # for NRF
 import struct
 from RF24 import RF24, RF24_PA_MAX
+IRQ_PIN = 17  # pin used for interrupts
+
 # for dht11
-import RPi.GPIO as GPIO
-import dht11
 
 # initialize GPIO
 GPIO.setwarnings(False)
@@ -17,30 +24,34 @@ GPIO.cleanup()
 instance = dht11.DHT11(pin=2)
 # result = instance.read()
 
-temp_c = 0
-hum = 0
+temp_i = 0
+hum_i = 0
+temp_o = 0
+hum_o = 0
+
 
 def toF(temp_c):
     return (temp_c * (9 / 5)) + 32
 
+
 def getInfo():
+    global temp_i, hum_i
     result = instance.read()
-    global temp_c, hum
     err_cnt = 0
     while err_cnt < 4:
+        time.sleep(2)
         if result.is_valid():
             err_cnt = 0
             temp_c = result.temperature
             hum = result.humidity
             print("\nT:%f  H:%f" % (temp_c, hum))
+            temp_i = toF(temp_c)
+            hum_i = hum
             break
         else:
             err_cnt += 1
-            time.sleep(5)
             result = instance.read()
-            print("E%d" % result.error_code, end = "")
-    temp = toF(temp_c)
-    return temp, hum
+            print("E%d" % result.error_code, end="")
 
 
 def showInfo(temp_i, hum_i, temp_o, hum_o):
@@ -57,47 +68,73 @@ def showInfo(temp_i, hum_i, temp_o, hum_o):
     return
 
 
-def wait():
-    for i in range(20):
-        lcd.cursor_pos = (0, i)
-        lcd.write_string("#")
-        time.sleep(2)
+def updateDisplay():
+    global temp_i, hum_i, temp_o, hum_o
+    lcd.clear()
+    lcd.cursor_pos = (0, 0)
+    lcd.write_string("INSIDE Temp: " + str(round(temp_i, 1)) + chr(223) + "F")
+    lcd.cursor_pos = (1, 0)
+    lcd.write_string("Humidity: " + str(hum_i) + "%")
+    lcd.cursor_pos = (2, 0)
+    lcd.write_string("OUTSIDE Temp: " + str(round(temp_o, 1)) + chr(223) + "F")
+    lcd.cursor_pos = (3, 0)
+    lcd.write_string("Humidity: " + str(hum_o) + "%")
     return
 
-def recvLoop():
-    radio.startListening()  # put radio in RX mode
 
+def wait():
+    # update our end of the deal
+    getInfo()
+    updateDisplay()
+    # wait 5 seconds
     start_timer = time.monotonic()
-    while (1):                                            # YEP for now ill do an infinate loop
-        has_payload, pipe_number = radio.available_pipe()
-        if has_payload:
-            # fetch 1 payload from RX FIFO
-            buffer = radio.read(radio.payloadSize)
-            # use struct.unpack() to convert the buffer into usable data
-            # expecting a little endian float, thus the format string "<f"
-            # buffer[:4] truncates padded 0s in case payloadSize was not set
-            payload = []
-            payload.append(struct.unpack("<f", buffer[:4])[0])
-            payload.append(struct.unpack("<f", buffer[4:9])[0]) # get both floats out
-            # print details about the received packet
-            print(
-                "Received {} bytes on pipe {}: {}".format(
-                    radio.payloadSize,
-                    pipe_number,
-                    payload
-                )
+    print('wait...')
+    while not time.monotonic() - start_timer < 5: # when we have not waited 5 seconds
+        pass
+    # call this func again
+    wait()
+
+
+def NrfInterrupt(thing):
+    '''This is called when we get an interrupt from the NRF module'''
+    print(thing)
+    print("IRQ pin went active LOW.")
+    tx_ds, tx_df, rx_dr = radio.whatHappened()  # update IRQ status flags
+    if rx_dr:   # this should be the only thin that happens
+        recvLoop()
+    else:
+        print(f"\ttx_ds: {tx_ds}, tx_df: {tx_df}, rx_dr: {rx_dr}")
+
+
+def recvLoop():
+    global temp_o, hum_o
+    has_payload, pipe_number = radio.available_pipe()
+    if has_payload:
+        # fetch 1 payload from RX FIFO
+        buffer = radio.read(radio.payloadSize)
+        # use struct.unpack() to convert the buffer into usable data
+        # expecting a little endian float, thus the format string "<f"
+        # buffer[:4] truncates padded 0s in case payloadSize was not set
+        payload = []
+        payload.append(struct.unpack("<f", buffer[:4])[0])
+        payload.append(struct.unpack("<f", buffer[4:9])[
+            0])  # get both floats out
+        # print details about the received packet
+        print(
+            "Received {} bytes on pipe {}: {}".format(
+                radio.payloadSize,
+                pipe_number,
+                payload
             )
-            # get our own tmperature
-            t_i, h_i = getInfo()
-            # and write both to the LCD
-            showInfo(t_i, h_i, toF(payload[0]), payload[1])
-
-
-
+        )
+        # Write to global variables
+        temp_o = toF(payload[0])
+        hum_o = payload[1]
+        # Update the LCD
+        #updateDisplay()
 
     # recommended behavior is to keep in TX mode while idle
-    radio.stopListening()  # put the radio in TX mode
-
+    # radio.stopListening()  # put the radio in TX mode
 
 
 if __name__ == "__main__":
@@ -129,7 +166,7 @@ if __name__ == "__main__":
     address = [b"1Node", b"2Node"]
     # It is very helpful to think of an address as a path instead of as
     # an identifying device destination
-    radio_number = 0 # the arduino is 1
+    radio_number = 0  # the arduino is 1
     radio.setPALevel(RF24_PA_MAX)  # RF24_PA_MAX is default
 
     # set the TX address of the RX node into the TX pipe
@@ -140,6 +177,11 @@ if __name__ == "__main__":
     # our payload will be 2 floats(4 bytes)
     radio.payloadSize = 8
 
-    radio.printPrettyDetails() #debugging
-    ## DONE, time to start the recieve loop
-    recvLoop()
+    radio.printPrettyDetails()  # debugging
+    # SETUP DONE, time to register for data recieved interrupts
+    radio.maskIRQ(1, 1, 0)
+    #radio.listen = True  # listen for data
+    radio.startListening()
+    GPIO.setup(IRQ_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    GPIO.add_event_detect(IRQ_PIN, GPIO.FALLING, callback=NrfInterrupt)
+    wait()
