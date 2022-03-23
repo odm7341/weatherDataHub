@@ -1,30 +1,31 @@
 import dht11
-from os import wait3
 import time
 import RPi.GPIO as GPIO
 from RPLCD.gpio import CharLCD
 
+# logging to a file
 import logging
 logging.basicConfig(filename='../weath.log', filemode='w', format='%(levelname)s - %(asctime)s %(message)s')
 logger=logging.getLogger()
 logger.setLevel(logging.DEBUG) 
 
-# for NRF
+# for NRF24
 import struct
 from RF24 import RF24, RF24_PA_MAX
 IRQ_PIN = 17  # pin used for interrupts
-
-# for dht11
 
 # initialize GPIO
 GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM)
 GPIO.cleanup()
 
+# for dht11
 # read data using pin 2
 instance = dht11.DHT11(pin=2)
 # result = instance.read()
 
+
+# The global temperature info
 temp_i = 0
 hum_i = 0
 temp_o = 0
@@ -32,32 +33,35 @@ hum_o = 0
 
 
 def toF(temp_c):
+    '''Exactly what it says on the tin'''
     return (temp_c * (9 / 5)) + 32
 
 
 def getInfo():
+    '''Get the information from the local DHT and update the global variables, on RPi DHT fails a lot so we jus keep trying'''
     global temp_i, hum_i
     result = instance.read()
     err_cnt = 0
     while err_cnt < 4:
-        time.sleep(2)
         if result.is_valid():
             err_cnt = 0
             temp_c = result.temperature
             hum = result.humidity
             #print("\nT:%f  H:%f" % (temp_c, hum))
-            logger.info("GOT INSIDE T:%f  H:%f" % (temp_c, hum))
+            logger.info("INSIDE T:%f  H:%f" % (temp_c, hum))
             temp_i = toF(temp_c)
             hum_i = hum
             break
         else:
+            # wait 2s and Keep trying
+            time.sleep(2)
             err_cnt += 1
             result = instance.read()
-            #print("E%d" % result.error_code, end="")
-            logger.error("DHT: %d" % result.error_code)
+            #logger.error("DHT: %d" % result.error_code) # errors happen so often no need to log them
 
 
 def updateDisplay():
+    '''Take the global weather var information and push it to the LCD'''
     global temp_i, hum_i, temp_o, hum_o
     lcd.clear()
     lcd.cursor_pos = (0, 0)
@@ -72,13 +76,13 @@ def updateDisplay():
 
 
 def wait():
-    # update our end of the deal
+    '''This will run every 60 seconds and updates the inside temperature as well as pushing the info to the display and CSVs'''
     getInfo()
     updateDisplay()
     # wait 5 seconds
     start_timer = time.monotonic()
     #print('wait...')
-    while not time.monotonic() - start_timer < 5: # when we have not waited 5 seconds
+    while not time.monotonic() - start_timer < 20: # when we have not waited 5 seconds
         pass
     # call this func again
     wait()
@@ -94,6 +98,7 @@ def NrfInterrupt(pin):
 
 
 def recvLoop():
+    '''This name is old, but all this function does is read a payload form the RF24 buffer and update the global variables'''
     global temp_o, hum_o
     has_payload, pipe_number = radio.available_pipe()
     if has_payload:
@@ -134,34 +139,33 @@ if __name__ == "__main__":
     )
     lcd.clear()
     lcd.write_string("Starting Up...")
-    time.sleep(1)
+    #time.sleep(1)
 
     ###################### NRF24 ############################################
-    # initialize the nRF24L01 on the spi bus
+    # initialize the nRF24L01 on the spi bus 0
     radio = RF24(22, 0)
     if not radio.begin():
         lcd.write_string("Radio not responding...")
         raise RuntimeError("radio hardware is not responding")
     # radio configs, TODO: clean up unnecessary ones
-    # An address need to be a buffer protocol object (bytearray)
+    # Addresses for tx from arduino (rx for ACK)
     address = [b"1Node", b"2Node"]
     # It is very helpful to think of an address as a path instead of as
     # an identifying device destination
-    radio_number = 0  # the arduino is 1
-    radio.setPALevel(RF24_PA_MAX)  # RF24_PA_MAX is default
+    radio_number = 0  # the arduino is 1, means we use the first address to send and rx on 2nd
+    radio.setPALevel(RF24_PA_MAX)
 
     # set the TX address of the RX node into the TX pipe
     radio.openWritingPipe(address[radio_number])  # always uses pipe 0
 
     # set the RX address of the TX node into a RX pipe
     radio.openReadingPipe(1, address[not radio_number])  # using pipe 1
-    # our payload will be 2 floats(4 bytes)
+    # our payload will be 2 floats(4 bytes * 2 = 8)
     radio.payloadSize = 8
 
-    radio.printPrettyDetails()  # debugging
+    #radio.printPrettyDetails()  # debugging
     # SETUP DONE, time to register for data recieved interrupts
-    radio.maskIRQ(1, 1, 0)
-    #radio.listen = True  # listen for data
+    radio.maskIRQ(1, 1, 0) # only wand IRQ on rx
     radio.startListening()
     GPIO.setup(IRQ_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
     GPIO.add_event_detect(IRQ_PIN, GPIO.FALLING, callback=NrfInterrupt)
