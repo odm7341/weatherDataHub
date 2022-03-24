@@ -5,7 +5,7 @@ from RPLCD.gpio import CharLCD
 
 # logging to a file
 import logging
-logging.basicConfig(filename='../weath.log', filemode='w', format='%(levelname)s - %(asctime)s %(message)s')
+logging.basicConfig(filename='/var/log/weath.log', filemode='w', format='%(levelname)s - %(asctime)s %(message)s')
 logger=logging.getLogger()
 logger.setLevel(logging.DEBUG) 
 
@@ -24,6 +24,9 @@ GPIO.cleanup()
 instance = dht11.DHT11(pin=2)
 # result = instance.read()
 
+# CSV file writing
+from os.path import exists
+DATA_FILE = "/data/weather.csv"
 
 # The global temperature info
 temp_i = 0
@@ -51,7 +54,7 @@ def getInfo():
             logger.info("INSIDE T:%f  H:%f" % (temp_c, hum))
             temp_i = toF(temp_c)
             hum_i = hum
-            break
+            return
         else:
             # wait 2s and Keep trying
             time.sleep(2)
@@ -60,10 +63,24 @@ def getInfo():
             #logger.error("DHT: %d" % result.error_code) # errors happen so often no need to log them
 
 
+def writeCSV():
+    '''Write the newest temperatures to a csv with the time'''
+    global temp_i, hum_i, temp_o, hum_o
+    if (not exists(DATA_FILE)): # if the file does not exist add it with the correct headers
+        with open(DATA_FILE, "w") as f:
+            f.write("time, temp_i, hum_i, temp_o, hum_o\n")
+    else:
+        with open(DATA_FILE, "a") as f:
+            f.write(F"{time.time()}, {round(temp_i, 1)}, {hum_i}, {round(temp_o, 1)}, {hum_o}\n")        
+    f.close()
+
+
+
+
 def updateDisplay():
     '''Take the global weather var information and push it to the LCD'''
     global temp_i, hum_i, temp_o, hum_o
-    lcd.clear()
+    #lcd.clear()
     lcd.cursor_pos = (0, 0)
     lcd.write_string("INSIDE Temp: " + str(round(temp_i, 1)) + chr(223) + "F")
     lcd.cursor_pos = (1, 0)
@@ -79,11 +96,9 @@ def wait():
     '''This will run every 60 seconds and updates the inside temperature as well as pushing the info to the display and CSVs'''
     getInfo()
     updateDisplay()
-    # wait 5 seconds
-    start_timer = time.monotonic()
-    #print('wait...')
-    while not time.monotonic() - start_timer < 20: # when we have not waited 5 seconds
-        pass
+    writeCSV()
+    # wait 60 seconds
+    time.sleep(60)
     # call this func again
     wait()
 
