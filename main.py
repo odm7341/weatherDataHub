@@ -1,3 +1,8 @@
+from sqlite3 import Error
+import sqlite3
+from os.path import exists
+from RF24 import RF24, RF24_PA_MAX
+import struct
 import dht11
 import time
 import RPi.GPIO as GPIO
@@ -5,13 +10,12 @@ from RPLCD.gpio import CharLCD
 
 # logging to a file
 import logging
-logging.basicConfig(filename='/var/log/weath.log', filemode='w', format='%(levelname)s - %(asctime)s %(message)s')
-logger=logging.getLogger()
-logger.setLevel(logging.DEBUG) 
+logging.basicConfig(filename='/var/log/weath.log', filemode='w',
+                    format='%(levelname)s - %(asctime)s %(message)s')
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 # for NRF24
-import struct
-from RF24 import RF24, RF24_PA_MAX
 IRQ_PIN = 17  # pin used for interrupts
 
 # initialize GPIO
@@ -24,15 +28,25 @@ GPIO.cleanup()
 instance = dht11.DHT11(pin=2)
 # result = instance.read()
 
-# CSV file writing
-from os.path import exists
-DATA_FILE = "/data/weather.csv"
+# writing data to sqlite
+DATA_FILE = "/data/weather.db"
 
 # The global temperature info
 temp_i = 0
 hum_i = 0
 temp_o = 0
 hum_o = 0
+
+# SQL COMMANDS
+SQL_create_weather_table = """ CREATE TABLE IF NOT EXISTS weather (
+                                        time integer PRIMARY KEY,
+                                        temp_i float NOT NULL,
+                                        hum_i float NOT NULL,
+                                        temp_o float NOT NULL,
+                                        hum_o float NOT NULL
+                                    ); """
+SQL_data_insert = """ INSERT INTO weather(time,temp_i,hum_i,temp_o,hum_o)
+              VALUES(?,?,?,?,?) """
 
 
 def toF(temp_c):
@@ -60,27 +74,55 @@ def getInfo():
             time.sleep(2)
             err_cnt += 1
             result = instance.read()
-            #logger.error("DHT: %d" % result.error_code) # errors happen so often no need to log them
+            # logger.error("DHT: %d" % result.error_code) # errors happen so often no need to log them
 
 
 def writeCSV():
     '''Write the newest temperatures to a csv with the time'''
     global temp_i, hum_i, temp_o, hum_o
-    if (not exists(DATA_FILE)): # if the file does not exist add it with the correct headers
+    if (not exists(DATA_FILE)):  # if the file does not exist add it with the correct headers
         with open(DATA_FILE, "w") as f:
             f.write("time, temp_i, hum_i, temp_o, hum_o\n")
     else:
         with open(DATA_FILE, "a") as f:
-            f.write(F"{time.time()}, {round(temp_i, 1)}, {hum_i}, {round(temp_o, 1)}, {hum_o}\n")        
+            f.write(
+                F"{time.time()}, {round(temp_i, 1)}, {hum_i}, {round(temp_o, 1)}, {hum_o}\n")
     f.close()
 
 
+def connectDB():
+    DB_conn = None
+    try:
+        DB_conn = sqlite3.connect(DATA_FILE)
+    except Error as e:
+        logger.error(e)
+    return DB_conn
+
+
+def writeDB():
+    '''Write the newest temperatures to a csv with the time'''
+    global temp_i, hum_i, temp_o, hum_o
+    database = connectDB()
+    try:
+        cur = database.cursor()
+        # check for weather table
+        cur.execute(
+            """SELECT name FROM sqlite_master WHERE type='table' AND name='weather';""")
+        if cur.fetchone() == None:
+            cur.execute(SQL_create_weather_table)
+        # now add the actual data
+        cur.execute(SQL_data_insert, (int(time.time()),
+                    round(temp_i, 1), hum_i, round(temp_o, 1), hum_o))
+        database.commit()
+    except Error as e:
+        logger.error(e)
+        return
 
 
 def updateDisplay():
     '''Take the global weather var information and push it to the LCD'''
     global temp_i, hum_i, temp_o, hum_o
-    #lcd.clear()
+    # lcd.clear()
     lcd.cursor_pos = (0, 0)
     lcd.write_string("INSIDE Temp: " + str(round(temp_i, 1)) + chr(223) + "F")
     lcd.cursor_pos = (1, 0)
@@ -95,8 +137,6 @@ def updateDisplay():
 def wait():
     '''This will run every 60 seconds and updates the inside temperature as well as pushing the info to the display and CSVs'''
     getInfo()
-    updateDisplay()
-    writeCSV()
     # wait 60 seconds
     time.sleep(60)
     # call this func again
@@ -109,7 +149,8 @@ def NrfInterrupt(pin):
     if rx_dr:   # this should be the only thing that happens
         recvLoop()
     else:
-        logger.error("Not rx IRQ; tx_ds: {tx_ds}, tx_df: {tx_df}, rx_dr: {rx_dr}")
+        logger.error(
+            "Not rx IRQ; tx_ds: {tx_ds}, tx_df: {tx_df}, rx_dr: {rx_dr}")
 
 
 def recvLoop():
@@ -131,8 +172,10 @@ def recvLoop():
         # Write to global variables
         temp_o = toF(payload[0])
         hum_o = payload[1]
-        # Update the LCD
-        #updateDisplay()
+        # Update the LCD and write to DB here so we can guanantee we never have missing data
+        updateDisplay()
+        # writeCSV()
+        writeDB()
 
     # recommended behavior is to keep in TX mode while idle
     # radio.stopListening()  # put the radio in TX mode
@@ -154,7 +197,7 @@ if __name__ == "__main__":
     )
     lcd.clear()
     lcd.write_string("Starting Up...")
-    #time.sleep(1)
+    # time.sleep(1)
 
     ###################### NRF24 ############################################
     # initialize the nRF24L01 on the spi bus 0
@@ -178,9 +221,9 @@ if __name__ == "__main__":
     # our payload will be 2 floats(4 bytes * 2 = 8)
     radio.payloadSize = 8
 
-    #radio.printPrettyDetails()  # debugging
+    # radio.printPrettyDetails()  # debugging
     # SETUP DONE, time to register for data recieved interrupts
-    radio.maskIRQ(1, 1, 0) # only wand IRQ on rx
+    radio.maskIRQ(1, 1, 0)  # only wand IRQ on rx
     radio.startListening()
     GPIO.setup(IRQ_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
     GPIO.add_event_detect(IRQ_PIN, GPIO.FALLING, callback=NrfInterrupt)
