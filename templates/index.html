@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+  <meta charset="UTF-8">
+  <title>Pi Weather</title>
+  <style>
+    html {
+  height: 100%;
+  /*cursor:none;*/
+}
+body {
+  margin: 0;
+}
+.main {
+  background-image: radial-gradient(circle at 50% 10%, rgba(255,202,0,1) 10%, rgba(103,133,234,.2) 40%);
+  top: 0%;
+  bottom: 0%;
+  left: 0%;
+  right: 0%;
+  position: fixed;
+  opacity: 1;
+  /*z-index: 1;*/
+}
+
+h1{
+  font-size:40px;
+}
+h3{
+  font-size:25px;
+}
+
+#content {
+  left: 50%;
+  /*padding: 3vmin;*/
+  position: fixed;
+  text-align: center;
+  /*line-height: .5;*/
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+  </style>
+
+</head>
+<body>
+<!-- partial:index.partial.html -->
+<div class="main"></div>
+<div class="main mod1l"></div>
+<div class="main mod2l"></div>
+<div class="main modr"></div>
+<div class="main mod1r"></div>
+<div class="main mod2r"></div>
+<div id="content">
+  <h1>{{ time }}<br>IN: {{ inner }}<br>OUT: {{ outer }}</h1>
+</div>
+<!-- partial -->
+  
+</body>
+</html>

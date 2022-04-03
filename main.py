@@ -1,6 +1,3 @@
-from sqlite3 import Error
-import sqlite3
-from os.path import exists
 from RF24 import RF24, RF24_PA_MAX
 import struct
 import dht11
@@ -29,6 +26,8 @@ instance = dht11.DHT11(pin=2)
 # result = instance.read()
 
 # writing data to sqlite
+from sqlite3 import Error
+import sqlite3
 DATA_FILE = "/data/weather.db"
 
 # The global temperature info
@@ -108,6 +107,7 @@ def writeDB():
         # check for weather table
         cur.execute(
             """SELECT name FROM sqlite_master WHERE type='table' AND name='weather';""")
+        # if the table does not exist add it first
         if cur.fetchone() == None:
             cur.execute(SQL_create_weather_table)
         # now add the actual data
@@ -136,11 +136,10 @@ def updateDisplay():
 
 def wait():
     '''This will run every 60 seconds and updates the inside temperature as well as pushing the info to the display and CSVs'''
-    getInfo()
-    # wait 60 seconds
-    time.sleep(60)
-    # call this func again
-    wait()
+    while 1:
+        getInfo()
+        # wait 60 seconds
+        time.sleep(60)
 
 
 def NrfInterrupt(pin):

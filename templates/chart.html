@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>GRAPH</title>
+  <!-- import plugin script -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.2/moment.min.js"></script>
+  <script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@^1"></script>
+</head>
+
+<body>
+  <!-- bar chart canvas element -->
+  <div class="chart-container" style="position: relative; height:35vh; width:96vw">
+    <canvas id="myChart"></canvas>
+  </div>
+
+  <script>
+	// Data processing
+    function sortFunction(a, b) {
+      if (a[0] === b[0]) {
+        return 0;
+      } else {
+        return (a[0] < b[0]) ? -1 : 1;
+      }
+    }
+
+    function time(seconds) {
+      return moment.unix(seconds);
+    }
+    
+    function toXYpair(row, yIdx) {
+      return {x: time(row[0]), y: row[yIdx]}
+    }
+	
+	var wData = [{% for item in data %}
+                      {{ item }},
+                {% endfor %}
+            ]
+			
+    //wData.sort(sortFunction)
+    const ctx = document.getElementById('myChart').getContext('2d');
+    const data = {
+      datasets: [{
+          label: 'Outside Temp',
+          borderColor: 'rgb(17, 115, 0)',
+          data: wData.map(row => toXYpair(row, 3)),
+          pointStyle: 'rect',
+          yAxisID: 'y',
+        },
+        {
+          label: 'Outside Humidity',
+          borderColor: 'rgba(90, 140, 80, 0.3)',
+          data: wData.map(row => toXYpair(row, 4)),
+          pointStyle: 'rect',
+          yAxisID: 'y1',
+        },
+        {
+          label: 'Inside Temp',
+          borderColor: 'rgb(132, 0, 156)',
+          data: wData.map(row => toXYpair(row, 1)),
+          pointStyle: 'rect',
+          yAxisID: 'y',
+        },
+        {
+          label: 'Inside Humidity',
+          borderColor: 'rgba(132, 84, 130, 0.3)',
+          data: wData.map(row => toXYpair(row, 2)),
+          pointStyle: 'rect',
+          yAxisID: 'y1',
+        },
+      ]
+    };
+    const config = {
+      type: 'line',
+      data: data,
+      options: {
+        elements: {
+          point: {
+            borderWidth: 0,
+            radius: 10,
+            backgroundColor: 'rgba(0,0,0,0)'
+          }
+        },
+        responsive: true,
+        interaction: {
+          mode: 'index',
+          intersect: false,
+        },
+        stacked: false,
+        plugins: {
+          title: {
+            display: true,
+            text: 'Weather Data Out & Inside'
+          }
+        },
+        scales: {
+          x: {
+            type: 'time',
+            position: 'bottom',
+          },
+          y: {
+            type: 'linear',
+            display: true,
+            position: 'left',
+          },
+          y1: {
+            type: 'linear',
+            display: true,
+            position: 'right',
+            // grid line settings
+            grid: {
+              drawOnChartArea: false, // only want the grid lines for one axis to show up
+            },
+          },
+        }
+      },
+    };
+    const myChart = new Chart(
+      document.getElementById('myChart'),
+      config
+    );
+  </script>
+
+</body>
+
+</html>
